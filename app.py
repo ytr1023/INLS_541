@@ -5,7 +5,7 @@ import plotly.express as px
 import pandas as pd
 
 # 加载数据
-data = pd.read_excel('C:/Users/yetia/Downloads/CRIME.xlsx')
+data = pd.read_excel('CRIME.xlsx')
 
 # 数据预处理
 # 清理列名
