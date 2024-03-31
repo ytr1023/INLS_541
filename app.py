@@ -4,21 +4,20 @@ from dash.dependencies import Input, Output
 import plotly.express as px
 import pandas as pd
 
-# 加载数据
 data = pd.read_excel('CRIME.xlsx')
 
-# 数据预处理
-# 清理列名
 data.columns = ['State', 'City', 'Year', 'Population', 'ViolentCrime', 'Murder', 'Rape', 'Robbery', 'AggravatedAssault', 'PropertyCrime', 'Burglary', 'LarcenyTheft', 'MotorVehicleTheft', 'Arson', 'Unnamed14', 'Unnamed15', 'Unnamed16']
-# 去除不需要的列和行
+
 data = data.drop(['Unnamed14', 'Unnamed15', 'Unnamed16'], axis=1)
 columns_to_convert = ['Population', 'ViolentCrime', 'Murder', 'Rape', 'Robbery', 'AggravatedAssault', 'PropertyCrime', 'Burglary', 'LarcenyTheft', 'MotorVehicleTheft', 'Arson']
 
-# 使用pd.to_numeric转换，遇到无法转换的设置为NaN
 for column in columns_to_convert:
     data[column] = pd.to_numeric(data[column], errors='coerce')
-
-# 再次尝试汇总数据
+year_options = [
+    {'label': 'All Years', 'value': 'All'},
+    {'label': '2008', 'value': 2008},
+    {'label': '2009', 'value': 2009}
+]
 state_crime_totals = data
 state_crime_totals.head()
 state_abbreviations = {
@@ -37,22 +36,57 @@ state_abbreviations = {
 
 state_abbreviations_upper = {k.upper(): v for k, v in state_abbreviations.items()}
 state_crime_totals['State'] = state_crime_totals['State'].map(state_abbreviations_upper)
-state_violent_crime_totals = state_crime_totals.groupby('State')['ViolentCrime'].sum().reset_index()
+state_crime_totals["Population"].fillna(method='ffill', inplace=True)
+state_crime_totals['vio_crime_per_thousand'] = state_crime_totals['ViolentCrime'] / state_crime_totals['Population'] * 1000
+state_violent_crime_totals = state_crime_totals.groupby('State')['vio_crime_per_thousand'].sum().reset_index()
 
 
 state_crime_totals.head()
-# 构建Dash应用
 app = dash.Dash(__name__)
-
-# 地图展示每个州的犯罪数量
-map_fig = px.choropleth(state_violent_crime_totals, 
-                        locations='State', 
-                        locationmode="USA-states", 
-                        color='ViolentCrime',  # 或其他犯罪统计作为颜色
-                        scope="usa")
+server = app.server
 
 app.layout = html.Div(children=[
-    dcc.Graph(id='us-map', figure=map_fig),
+    html.Div([
+        dcc.Dropdown(
+            id='year-dropdown',
+            options=year_options,
+            value=year_options[0]['value'], 
+            clearable=False
+        )
+    ]),
+    dcc.Graph(id='us-map'),
+    dcc.Graph(id='crime-bar-chart'),
+    dcc.Graph(id='crime-type-chart')
+])
+
+@app.callback(
+    Output('us-map', 'figure'),
+    [Input('year-dropdown', 'value')])
+def update_map(selected_year):
+    if selected_year == 'All':
+        filtered_data = state_crime_totals
+    else:
+        filtered_data = state_crime_totals[state_crime_totals['Year'] == selected_year]
+    
+    state_violent_crime_totals = filtered_data.groupby('State')['vio_crime_per_thousand'].sum().reset_index()
+    
+    map_fig = px.choropleth(state_violent_crime_totals, 
+                            locations='State', 
+                            locationmode="USA-states", 
+                            color='vio_crime_per_thousand', 
+                            scope="usa")
+    return map_fig
+
+app.layout = html.Div(children=[
+    html.Div([
+        dcc.Dropdown(
+            id='year-dropdown',
+            options=year_options,
+            value='All', 
+            clearable=False
+        )
+    ]),
+    dcc.Graph(id='us-map'), 
     dcc.Graph(id='crime-bar-chart'),
     dcc.Graph(id='crime-type-chart')
 ])
@@ -60,21 +94,26 @@ app.layout = html.Div(children=[
 @app.callback(
     [Output('crime-bar-chart', 'figure'),
      Output('crime-type-chart', 'figure')],
-    [Input('us-map', 'clickData')])
-def update_charts(clickData):
-    state = 'AL'  # 默认值
+    [Input('us-map', 'clickData'),
+     Input('year-dropdown', 'value')])
+def update_charts(clickData, selected_year):
+    state = 'AL'
     if clickData is not None:
         state = clickData['points'][0]['location']
+    if selected_year == 'All':
+        filtered_data = state_crime_totals[state_crime_totals['State'] == state]
+        filtered_data['Year'] = filtered_data['Year'].astype(str)
+    else:
+        filtered_data = state_crime_totals[(state_crime_totals['State'] == state) & (state_crime_totals['Year'] == selected_year)]
+        filtered_data['Year'] = filtered_data['Year'].astype(str)
+        
     
-    # 根据选择的州过滤数据
-    filtered_data = state_crime_totals[state_crime_totals['State'] == state]
-    
-    # 创建柱状图：展示该州的犯罪总数
-    bar_fig = px.bar(filtered_data, x='City', y='ViolentCrime', title=f'{state} Violent Crime')
-    
-    # 创建条形图：展示该州具体的犯罪类型
+    bar_fig = px.bar(filtered_data, x='City', y='vio_crime_per_thousand', title=f'{state} Violent Crime per thoudand perple', barmode='group', color='Year')
+    bar_fig.update_layout(yaxis_title='Violant Crimes per thousand people')
     crime_types = ['Murder', 'Rape', 'Robbery', 'AggravatedAssault']
-    type_fig = px.bar(filtered_data, x='City', y=crime_types, title=f'{state} Crime Types', barmode='group')
+    type_fig = px.bar(filtered_data, x='City', y=crime_types, title=f'{state} total Crime Types', barmode='group')
+    type_fig.update_layout(yaxis_title='Number of Incidents')
+    type_fig.update_layout(legend_title_text='Violent Crime Type')
     
     return bar_fig, type_fig
 
