@@ -50,6 +50,7 @@ state_violent_crime_totals = state_crime_totals.groupby('State')['vio_crime_per_
 
 state_crime_totals.head()
 app = dash.Dash(__name__)
+server = app.server
 
 app.layout = html.Div(children=[
     html.H1('Crime Statistics Dashboard', style={'textAlign': 'center', 'marginBottom': '20px'}),
